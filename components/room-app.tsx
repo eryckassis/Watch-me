@@ -210,7 +210,9 @@ export function RoomApp({
   );
   const [joined, setJoined] = useState(true);
   const [viewerProfileOpen, setViewerProfileOpen] = useState(false);
-  const [profile, setProfile] = useState<Profile>(initialProfile || { name: "Usuário", avatar: "" });
+  const [profile, setProfile] = useState<Profile>(
+    initialProfile || { name: "Usuário", avatar: "" },
+  );
   const [draft, setDraft] = useState<Profile>(profile);
   const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
@@ -246,8 +248,7 @@ export function RoomApp({
     viewer ? "Aguardando transmissão" : "Pronto para transmitir",
   );
   const [quality, setQuality] = useState("2K · 2560×1440 solicitado");
-  const [qualityPreset, setQualityPreset] =
-    useState<QualityPreset>("2K");
+  const [qualityPreset, setQualityPreset] = useState<QualityPreset>("2K");
   const [streamSettingsOpen, setStreamSettingsOpen] = useState(false);
   const [captureAudio, setCaptureAudio] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -284,7 +285,11 @@ export function RoomApp({
 
   useEffect(() => {
     const openFriendsSearch = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== "k") return;
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        event.key.toLocaleLowerCase() !== "k"
+      )
+        return;
       event.preventDefault();
       setFriendsOpen(true);
     };
@@ -450,9 +455,7 @@ export function RoomApp({
     if (pollBusy.current) return;
     pollBusy.current = true;
     try {
-      const session = await roomApi<SessionPayload>(
-        "/api/room/session",
-      );
+      const session = await roomApi<SessionPayload>("/api/room/session");
       setViewers(session.peers || []);
       setRoomLive(session.isLive);
       if (viewer && !session.isLive && connections.current.size === 0)
@@ -580,9 +583,7 @@ export function RoomApp({
 
   const loadChannel = useCallback(async () => {
     try {
-      const payload = await roomApi<ChannelPayload>(
-        "/api/room/channel",
-      );
+      const payload = await roomApi<ChannelPayload>("/api/room/channel");
       setChannel(payload.channel);
       setChannelDraft(payload.channel);
     } catch {
@@ -699,9 +700,9 @@ export function RoomApp({
       );
       const useNativeProcessAudio = Boolean(
         captureAudio &&
-          nativeCapture &&
-          kind === "window" &&
-          selectedSource?.processId,
+        nativeCapture &&
+        kind === "window" &&
+        selectedSource?.processId,
       );
       if (nativeCapture && kind === "window" && !selectedSource?.processId) {
         throw new Error(
@@ -764,7 +765,12 @@ export function RoomApp({
 
       nativeAudioRef.current = nativeAudio;
       streamRef.current = stream;
-      if (localVideo.current) localVideo.current.srcObject = stream;
+      if (localVideo.current) {
+        localVideo.current.srcObject = new MediaStream(stream.getVideoTracks());
+        localVideo.current.muted = true;
+        localVideo.current.volume = 0;
+      }
+
       const track = videoTrack;
       const settings = track.getSettings();
       setQuality(
@@ -856,6 +862,13 @@ export function RoomApp({
   }
   function updatePlayback(video: HTMLVideoElement | null) {
     if (!video) return;
+
+    if (!viewer) {
+      video.muted = true;
+      video.volume = 0;
+      return;
+    }
+
     video.volume = volume;
     video.muted = muted;
   }
@@ -892,14 +905,21 @@ export function RoomApp({
     try {
       let url = inviteUrl || `${window.location.origin}/s/${channel.slug}`;
       if (!viewer) {
-        const payload = await roomApi<{ invite: { url: string } }>(`/api/rooms/${roomId}/invites`, { method: "POST" });
+        const payload = await roomApi<{ invite: { url: string } }>(
+          `/api/rooms/${roomId}/invites`,
+          { method: "POST" },
+        );
         url = payload.invite.url;
       }
       await navigator.clipboard?.writeText(url);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Não foi possível criar o convite");
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível criar o convite",
+      );
     }
   }
   async function loadRoomAccess() {
@@ -914,7 +934,11 @@ export function RoomApp({
       setMembers(memberPayload.members);
       setInvites(invitePayload.invites);
     } catch (error) {
-      setAccessError(error instanceof Error ? error.message : "Não foi possível carregar os acessos");
+      setAccessError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível carregar os acessos",
+      );
     } finally {
       setAccessLoading(false);
     }
@@ -933,7 +957,11 @@ export function RoomApp({
       setUserSuggestions([]);
       await loadRoomAccess();
     } catch (error) {
-      setAccessError(error instanceof Error ? error.message : "Não foi possível adicionar o membro");
+      setAccessError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível adicionar o membro",
+      );
       setAccessLoading(false);
     }
   }
@@ -947,7 +975,11 @@ export function RoomApp({
       });
       await loadRoomAccess();
     } catch (error) {
-      setAccessError(error instanceof Error ? error.message : "Não foi possível remover o membro");
+      setAccessError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível remover o membro",
+      );
       setAccessLoading(false);
     }
   }
@@ -961,7 +993,11 @@ export function RoomApp({
       });
       await loadRoomAccess();
     } catch (error) {
-      setAccessError(error instanceof Error ? error.message : "Não foi possível revogar o convite");
+      setAccessError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível revogar o convite",
+      );
       setAccessLoading(false);
     }
   }
@@ -1015,20 +1051,17 @@ export function RoomApp({
     setChannelSaving(true);
     setChannelError("");
     try {
-      const payload = await roomApi<ChannelPayload>(
-        "/api/room/channel",
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            peerId,
-            name: channelDraft.name,
-            category: channelDraft.category,
-            description: channelDraft.description,
-            avatar: channelDraft.avatar,
-          }),
-        },
-      );
+      const payload = await roomApi<ChannelPayload>("/api/room/channel", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          peerId,
+          name: channelDraft.name,
+          category: channelDraft.category,
+          description: channelDraft.description,
+          avatar: channelDraft.avatar,
+        }),
+      });
       setChannel(payload.channel);
       setChannelDraft(payload.channel);
       setChannelSettingsOpen(false);
@@ -1074,17 +1107,36 @@ export function RoomApp({
     setProfileSaving(true);
     setProfileError("");
     try {
-      const payload = await roomApi<{ user: { displayName: string; displayTag: string; avatarUrl: string | null } }>("/api/me", {
+      const payload = await roomApi<{
+        user: {
+          displayName: string;
+          displayTag: string;
+          avatarUrl: string | null;
+        };
+      }>("/api/me", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: draft.name, avatarUrl: draft.avatar }),
+        body: JSON.stringify({
+          displayName: draft.name,
+          avatarUrl: draft.avatar,
+        }),
       });
-      setProfile({ name: payload.user.displayName, avatar: payload.user.avatarUrl || profile.avatar });
-      setDraft({ name: payload.user.displayName, avatar: payload.user.avatarUrl || profile.avatar });
+      setProfile({
+        name: payload.user.displayName,
+        avatar: payload.user.avatarUrl || profile.avatar,
+      });
+      setDraft({
+        name: payload.user.displayName,
+        avatar: payload.user.avatarUrl || profile.avatar,
+      });
       setDisplayTag(payload.user.displayTag);
       setProfileSettingsOpen(false);
     } catch (error) {
-      setProfileError(error instanceof Error ? error.message : "Não foi possível salvar o perfil");
+      setProfileError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível salvar o perfil",
+      );
     } finally {
       setProfileSaving(false);
     }
@@ -1347,51 +1399,51 @@ export function RoomApp({
             onFriends={() => setFriendsOpen(true)}
             incomingFriendRequests={incomingFriendRequests}
           />
-      <div className="workspace-content">
-        <section className="workspace-stage-section">
-          <div className="stage-card">
-            <BroadcastStage
+          <div className="workspace-content">
+            <section className="workspace-stage-section">
+              <div className="stage-card">
+                <BroadcastStage
+                  viewer={viewer}
+                  joined={joined}
+                  sharing={sharing}
+                  status={status}
+                  quality={quality}
+                  muted={muted}
+                  playbackBlocked={viewer && playbackBlocked}
+                  mediaFullscreen={mediaFullscreen}
+                  videoRef={viewer ? remoteVideo : localVideo}
+                  stageRef={screenPreview}
+                  onJoin={() => setViewerProfileOpen(true)}
+                  onStartShare={() => setSourcePickerOpen(true)}
+                  onEnablePlayback={() => void enablePlayback()}
+                  onToggleFullscreen={() => void toggleFullscreen()}
+                  onLoadedMetadata={updatePlayback}
+                />
+              </div>
+            </section>
+            <ParticipantStrip
               viewer={viewer}
-              joined={joined}
-              sharing={sharing}
-              status={status}
-              quality={quality}
-              muted={muted}
-              playbackBlocked={viewer && playbackBlocked}
-              mediaFullscreen={mediaFullscreen}
-              videoRef={viewer ? remoteVideo : localVideo}
-              stageRef={screenPreview}
-              onJoin={() => setViewerProfileOpen(true)}
-              onStartShare={() => setSourcePickerOpen(true)}
-              onEnablePlayback={() => void enablePlayback()}
-              onToggleFullscreen={() => void toggleFullscreen()}
-              onLoadedMetadata={updatePlayback}
+              sharing={viewer ? roomLive : sharing}
+              profile={profile}
+              viewers={viewers}
+              onInvite={() => void copyInvite()}
             />
+            {joined || !viewer ? (
+              <ControlDock
+                viewer={viewer}
+                sharing={sharing}
+                muted={muted}
+                onToggleMuted={toggleMuted}
+                onToggleFullscreen={() => void toggleFullscreen()}
+                onToggleShare={() => {
+                  if (sharing) stopShare();
+                  else setSourcePickerOpen(true);
+                }}
+                onLeave={() => void leaveRoom()}
+                onOpenSettings={() => setStreamSettingsOpen(true)}
+              />
+            ) : null}
           </div>
-        </section>
-        <ParticipantStrip
-          viewer={viewer}
-          sharing={viewer ? roomLive : sharing}
-          profile={profile}
-          viewers={viewers}
-          onInvite={() => void copyInvite()}
-        />
-        {(joined || !viewer) ? (
-          <ControlDock
-            viewer={viewer}
-            sharing={sharing}
-            muted={muted}
-            onToggleMuted={toggleMuted}
-            onToggleFullscreen={() => void toggleFullscreen()}
-            onToggleShare={() => {
-              if (sharing) stopShare();
-              else setSourcePickerOpen(true);
-            }}
-            onLeave={() => void leaveRoom()}
-            onOpenSettings={() => setStreamSettingsOpen(true)}
-          />
-        ) : null}
-      </div>
         </section>
       </div>
       <ViewerJoinDialog
@@ -1440,20 +1492,92 @@ export function RoomApp({
         }}
       />
       {profileSettingsOpen && (
-        <RoomDialog open={profileSettingsOpen} onOpenChange={setProfileSettingsOpen} className="channel-settings-dialog" label="Editar perfil">
-          <form className="channel-settings-card" onSubmit={(event) => { event.preventDefault(); void saveProfile(); }}>
-            <div className="channel-settings-header"><div><p>Conta Google</p><h2>Editar perfil</h2></div><DialogCloseButton /></div>
-            <div className="flex items-center gap-4 rounded-xl bg-[#0b0b0b] p-4">
-              <span className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 text-lg font-bold text-white">{draft.avatar ? <img src={draft.avatar} alt="Prévia da foto do perfil" className="size-full object-cover" /> : profile.name.slice(0, 1).toUpperCase()}</span>
-              <div className="min-w-0 flex-1"><strong className="block truncate text-sm text-white">{displayTag || profile.name}</strong><small className="text-xs text-white/45">O número da tag permanece o mesmo.</small></div>
-              <label className="cursor-pointer rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white hover:bg-white/10">Trocar foto<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={uploadAvatar} /></label>
+        <RoomDialog
+          open={profileSettingsOpen}
+          onOpenChange={setProfileSettingsOpen}
+          className="channel-settings-dialog"
+          label="Editar perfil"
+        >
+          <form
+            className="channel-settings-card"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveProfile();
+            }}
+          >
+            <div className="channel-settings-header">
+              <div>
+                <p>Conta Google</p>
+                <h2>Editar perfil</h2>
+              </div>
+              <DialogCloseButton />
             </div>
-            <label>Nome público<input value={draft.name} minLength={2} maxLength={24} required onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-            {profileError && <p className="channel-settings-error">{profileError}</p>}
+            <div className="flex items-center gap-4 rounded-xl bg-[#0b0b0b] p-4">
+              <span className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 text-lg font-bold text-white">
+                {draft.avatar ? (
+                  <img
+                    src={draft.avatar}
+                    alt="Prévia da foto do perfil"
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  profile.name.slice(0, 1).toUpperCase()
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <strong className="block truncate text-sm text-white">
+                  {displayTag || profile.name}
+                </strong>
+                <small className="text-xs text-white/45">
+                  O número da tag permanece o mesmo.
+                </small>
+              </div>
+              <label className="cursor-pointer rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white hover:bg-white/10">
+                Trocar foto
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={uploadAvatar}
+                />
+              </label>
+            </div>
+            <label>
+              Nome público
+              <input
+                value={draft.name}
+                minLength={2}
+                maxLength={24}
+                required
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            {profileError && (
+              <p className="channel-settings-error">{profileError}</p>
+            )}
             <div className="channel-settings-actions">
-              {!accessToken && <a href="/logout" className="mr-auto self-center text-xs font-bold text-red-300">Sair da conta</a>}
-              <button type="button" onClick={() => setProfileSettingsOpen(false)}>Cancelar</button>
-              <button type="submit" disabled={profileSaving}>{profileSaving ? "Salvando…" : "Salvar perfil"}</button>
+              {!accessToken && (
+                <a
+                  href="/logout"
+                  className="mr-auto self-center text-xs font-bold text-red-300"
+                >
+                  Sair da conta
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setProfileSettingsOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button type="submit" disabled={profileSaving}>
+                {profileSaving ? "Salvando…" : "Salvar perfil"}
+              </button>
             </div>
           </form>
         </RoomDialog>
@@ -1559,14 +1683,30 @@ export function RoomApp({
                 }
               />
             </label>
-            <section className="mt-3 space-y-5 border-t border-white/10 pt-6" aria-labelledby="room-access-title">
+            <section
+              className="mt-3 space-y-5 border-t border-white/10 pt-6"
+              aria-labelledby="room-access-title"
+            >
               <div>
-                <p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Acesso permanente</p>
-                <h3 id="room-access-title" className="mt-2 text-lg font-bold text-white">Membros e convites</h3>
-                <p className="mt-1 text-xs leading-5 text-white/50">Adicione uma tag ou gere um link válido por sete dias.</p>
+                <p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">
+                  Acesso permanente
+                </p>
+                <h3
+                  id="room-access-title"
+                  className="mt-2 text-lg font-bold text-white"
+                >
+                  Membros e convites
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-white/50">
+                  Adicione uma tag ou gere um link válido por sete dias.
+                </p>
               </div>
               <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-3.5 text-white/35" size={17} aria-hidden="true" />
+                <Search
+                  className="pointer-events-none absolute left-4 top-3.5 text-white/35"
+                  size={17}
+                  aria-hidden="true"
+                />
                 <input
                   value={memberTag}
                   onChange={(event) => {
@@ -1588,50 +1728,152 @@ export function RoomApp({
                   {userSearchLoading ? "Buscando…" : "Usuários"}
                 </span>
                 {memberTag.trim().length >= 2 && !userSearchLoading && (
-                  <div className="absolute inset-x-0 top-[calc(100%+.5rem)] z-20 overflow-hidden rounded-xl border border-white/10 bg-[#121212] p-1 shadow-2xl shadow-black/50" role="listbox">
-                    {userSuggestions.length ? userSuggestions.map((user) => (
-                      <button
-                        key={user.userId}
-                        type="button"
-                        role="option"
-                        aria-selected="false"
-                        disabled={accessLoading}
-                        onClick={() => void addMember(user.displayTag)}
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/10 focus-visible:bg-white/10 focus-visible:outline-none"
-                      >
-                        <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 text-xs font-bold text-white">
-                          {user.avatarUrl ? <img src={user.avatarUrl} alt="" className="size-full object-cover" /> : user.displayName.slice(0, 1).toUpperCase()}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <strong className="block truncate text-sm text-white">{user.displayName}</strong>
-                          <small className="block truncate text-xs text-white/45">{user.displayTag}</small>
-                        </span>
-                        <span className="text-xs font-bold text-white/70">Adicionar</span>
-                      </button>
-                    )) : (
-                      <p className="px-3 py-4 text-center text-xs text-white/45">Nenhum usuário disponível com esse nome.</p>
+                  <div
+                    className="absolute inset-x-0 top-[calc(100%+.5rem)] z-20 overflow-hidden rounded-xl border border-white/10 bg-[#121212] p-1 shadow-2xl shadow-black/50"
+                    role="listbox"
+                  >
+                    {userSuggestions.length ? (
+                      userSuggestions.map((user) => (
+                        <button
+                          key={user.userId}
+                          type="button"
+                          role="option"
+                          aria-selected="false"
+                          disabled={accessLoading}
+                          onClick={() => void addMember(user.displayTag)}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/10 focus-visible:bg-white/10 focus-visible:outline-none"
+                        >
+                          <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 text-xs font-bold text-white">
+                            {user.avatarUrl ? (
+                              <img
+                                src={user.avatarUrl}
+                                alt=""
+                                className="size-full object-cover"
+                              />
+                            ) : (
+                              user.displayName.slice(0, 1).toUpperCase()
+                            )}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <strong className="block truncate text-sm text-white">
+                              {user.displayName}
+                            </strong>
+                            <small className="block truncate text-xs text-white/45">
+                              {user.displayTag}
+                            </small>
+                          </span>
+                          <span className="text-xs font-bold text-white/70">
+                            Adicionar
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-4 text-center text-xs text-white/45">
+                        Nenhum usuário disponível com esse nome.
+                      </p>
                     )}
                   </div>
                 )}
               </div>
               <div className="space-y-2">
                 {members.map((member) => (
-                  <div key={member.userId} className="flex items-center gap-3 rounded-xl bg-[#0b0b0b] p-3">
-                    <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 text-xs font-bold text-white">{member.avatarUrl ? <img src={member.avatarUrl} alt="" className="size-full object-cover" /> : member.displayName.slice(0, 1).toUpperCase()}</span>
-                    <span className="min-w-0 flex-1"><strong className="block truncate text-sm text-white">{member.displayTag}</strong><small className="text-[10px] font-bold uppercase tracking-wider text-white/35">{member.role === "owner" ? "Proprietário" : "Membro"}</small></span>
-                    {member.role !== "owner" && <button type="button" disabled={accessLoading} onClick={() => void removeMember(member.userId)} className="rounded-lg px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-500/10">Remover</button>}
+                  <div
+                    key={member.userId}
+                    className="flex items-center gap-3 rounded-xl bg-[#0b0b0b] p-3"
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-white/10 text-xs font-bold text-white">
+                      {member.avatarUrl ? (
+                        <img
+                          src={member.avatarUrl}
+                          alt=""
+                          className="size-full object-cover"
+                        />
+                      ) : (
+                        member.displayName.slice(0, 1).toUpperCase()
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong className="block truncate text-sm text-white">
+                        {member.displayTag}
+                      </strong>
+                      <small className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                        {member.role === "owner" ? "Proprietário" : "Membro"}
+                      </small>
+                    </span>
+                    {member.role !== "owner" && (
+                      <button
+                        type="button"
+                        disabled={accessLoading}
+                        onClick={() => void removeMember(member.userId)}
+                        className="rounded-lg px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-500/10"
+                      >
+                        Remover
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
               <div className="flex items-center justify-between gap-4">
-                <div><strong className="block text-sm text-white">Links de convite</strong><small className="text-xs text-white/40">{invites.filter((invite) => !invite.revokedAt && new Date(invite.expiresAt) > new Date()).length} ativo(s)</small></div>
-                <button type="button" disabled={accessLoading} onClick={() => void copyInvite().then(loadRoomAccess)} className="min-h-10 rounded-xl border border-white/10 bg-white/5 px-4 text-xs font-bold text-white hover:bg-white/10">Criar e copiar</button>
+                <div>
+                  <strong className="block text-sm text-white">
+                    Links de convite
+                  </strong>
+                  <small className="text-xs text-white/40">
+                    {
+                      invites.filter(
+                        (invite) =>
+                          !invite.revokedAt &&
+                          new Date(invite.expiresAt) > new Date(),
+                      ).length
+                    }{" "}
+                    ativo(s)
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  disabled={accessLoading}
+                  onClick={() => void copyInvite().then(loadRoomAccess)}
+                  className="min-h-10 rounded-xl border border-white/10 bg-white/5 px-4 text-xs font-bold text-white hover:bg-white/10"
+                >
+                  Criar e copiar
+                </button>
               </div>
-              {invites.filter((invite) => !invite.revokedAt && new Date(invite.expiresAt) > new Date()).map((invite) => (
-                <div key={invite.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#0b0b0b] px-4 py-3 text-xs text-white/55"><span>Expira em {new Date(invite.expiresAt).toLocaleDateString("pt-BR")}</span><button type="button" disabled={accessLoading} onClick={() => void revokeInvite(invite.id)} className="font-bold text-red-300">Revogar</button></div>
-              ))}
-              {accessLoading && <p className="text-xs text-white/40">Atualizando acessos…</p>}
-              {accessError && <p className="rounded-xl bg-red-500/10 px-4 py-3 text-xs leading-5 text-red-200" role="alert">{accessError}</p>}
+              {invites
+                .filter(
+                  (invite) =>
+                    !invite.revokedAt &&
+                    new Date(invite.expiresAt) > new Date(),
+                )
+                .map((invite) => (
+                  <div
+                    key={invite.id}
+                    className="flex items-center justify-between gap-3 rounded-xl bg-[#0b0b0b] px-4 py-3 text-xs text-white/55"
+                  >
+                    <span>
+                      Expira em{" "}
+                      {new Date(invite.expiresAt).toLocaleDateString("pt-BR")}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={accessLoading}
+                      onClick={() => void revokeInvite(invite.id)}
+                      className="font-bold text-red-300"
+                    >
+                      Revogar
+                    </button>
+                  </div>
+                ))}
+              {accessLoading && (
+                <p className="text-xs text-white/40">Atualizando acessos…</p>
+              )}
+              {accessError && (
+                <p
+                  className="rounded-xl bg-red-500/10 px-4 py-3 text-xs leading-5 text-red-200"
+                  role="alert"
+                >
+                  {accessError}
+                </p>
+              )}
             </section>
             {channelError && (
               <p className="channel-settings-error">{channelError}</p>
