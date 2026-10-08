@@ -1,24 +1,44 @@
-import { and, eq, gt, isNull } from 'drizzle-orm'
-import { db } from '@/lib/db'
-import { roomInvites, roomMemberships } from '@/lib/db/schema'
-import { accessErrorResponse, hashSecret, requireIdentity } from '@/lib/auth/identity'
+import {
+  accessErrorResponse,
+  createAccessToken,
+  createInviteToken,
+  readInviteToken,
+} from '@/lib/auth/identity'
 import { roomJson, roomOptions } from '@/lib/api/room-cors'
+import { ensureRoom } from '@/lib/room/store'
 
 type Context = { params: Promise<{ token: string }> }
 
 export async function POST(request: Request, { params }: Context) {
   try {
-    const identity = await requireIdentity(request)
     const { token } = await params
-    const invite = (await db.select().from(roomInvites).where(and(eq(roomInvites.tokenHash, hashSecret(token)), isNull(roomInvites.revokedAt), gt(roomInvites.expiresAt, new Date()))).limit(1))[0]
-    if (!invite) return roomJson(request, { error: 'Este convite expirou ou foi revogado' }, { status: 410 })
-    await db.insert(roomMemberships).values({ userId: identity.user.id, roomId: invite.roomId, role: 'member', invitedBy: invite.createdBy }).onConflictDoNothing()
-    return roomJson(request, { ok: true, roomId: invite.roomId })
+    const invite = readInviteToken(token)
+    const body = await request.json().catch(() => ({}))
+    const access = createAccessToken({
+      roomId: invite.roomId,
+      expiresAt: invite.expiresAt,
+      displayName: body.name,
+      canManageRoom: false,
+    })
+    ensureRoom(invite.roomId, invite.expiresAt)
+
+    return roomJson(request, {
+      accessToken: access.token,
+      roomId: invite.roomId,
+      expiresAt: new Date(invite.expiresAt).toISOString(),
+      inviteUrl: new URL(`/invite/${createInviteToken(invite.roomId, invite.expiresAt)}`, request.url).toString(),
+      user: {
+        id: access.payload.userId,
+        displayName: access.payload.displayName,
+        displayTag: access.payload.displayName,
+        avatarUrl: null,
+      },
+    })
   } catch (error) {
     const access = accessErrorResponse(error)
     if (access) return roomJson(request, { error: access.message }, { status: access.status })
-    console.error('[rooms] Invite acceptance failed', error)
-    return roomJson(request, { error: 'Não foi possível aceitar o convite' }, { status: 503 })
+    console.error('[sessions] Invite acceptance failed', error)
+    return roomJson(request, { error: 'Não foi possível aceitar o convite' }, { status: 500 })
   }
 }
 

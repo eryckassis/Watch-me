@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { DesktopApp } from './desktop-app'
+import { DesktopApp } from './session-desktop-app'
 import '@fontsource-variable/manrope'
 import './styles.css'
 

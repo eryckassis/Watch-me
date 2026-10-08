@@ -4,6 +4,7 @@ import type {
   NativeCaptureBridge,
   NativeCaptureSource,
 } from "../components/room-app";
+import { canStartProcessAudioFromPcm } from "../lib/media/pcm-signal";
 
 type AudioCaptureFormat = {
   sampleRate: number;
@@ -58,13 +59,11 @@ async function readChunk() {
   );
 }
 
-async function startProcessAudio(
-  processId: number,
+async function startAudio(
+  command: "start_process_audio_capture" | "start_system_audio_capture",
+  args?: { processId: number },
 ): Promise<NativeAudioSession> {
-  const format = await invoke<AudioCaptureFormat>(
-    "start_process_audio_capture",
-    { processId },
-  );
+  const format = await invoke<AudioCaptureFormat>(command, args);
   if (
     format.sampleRate !== 48_000 ||
     format.channels !== 2 ||
@@ -77,16 +76,14 @@ async function startProcessAudio(
   }
 
   let firstChunk = new Uint8Array();
-  const deadline = performance.now() + 3_000;
-  while (!firstChunk.byteLength && performance.now() < deadline) {
-    firstChunk = await readChunk();
-    if (!firstChunk.byteLength) await wait(35);
-  }
-  if (!firstChunk.byteLength) {
-    await invoke("stop_process_audio_capture").catch(() => undefined);
-    throw new Error(
-      "Nenhum áudio foi detectado. Inicie um som no aplicativo escolhido e tente novamente.",
-    );
+  const deadline = performance.now() + 750;
+  while (performance.now() < deadline) {
+    const chunk = await readChunk();
+    if (canStartProcessAudioFromPcm(chunk)) {
+      firstChunk = chunk;
+      break;
+    }
+    await wait(35);
   }
 
   const context = new AudioContext({
@@ -95,12 +92,14 @@ async function startProcessAudio(
   });
   await context.resume();
   const destination = context.createMediaStreamDestination();
-  let nextTime = schedulePcm(
-    context,
-    destination,
-    firstChunk,
-    context.currentTime + 0.06,
-  );
+  let nextTime = firstChunk.byteLength
+    ? schedulePcm(
+        context,
+        destination,
+        firstChunk,
+        context.currentTime + 0.06,
+      )
+    : context.currentTime + 0.06;
   let stopped = false;
   let reading = false;
 
@@ -131,8 +130,14 @@ async function startProcessAudio(
   };
 }
 
+const startProcessAudio = (processId: number) =>
+  startAudio("start_process_audio_capture", { processId });
+
+const startSystemAudio = () => startAudio("start_system_audio_capture");
+
 export const windowsNativeCapture: NativeCaptureBridge = {
   platformLabel: "Windows 11",
   listSources: () => invoke<NativeCaptureSource[]>("list_capture_sources"),
   startProcessAudio,
+  startSystemAudio,
 };

@@ -1,29 +1,32 @@
-import { createHash, randomInt } from 'node:crypto'
-import { and, eq, gt, isNull } from 'drizzle-orm'
-import { db } from '@/lib/db'
-import {
-  appUsers,
-  desktopSessions,
-  roomChannels,
-  roomMemberships,
-} from '@/lib/db/schema'
-import { authIsConfigured, neonAuth } from './neon'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
-const MAIN_ROOM_ID = 'main'
-const DEVICE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+export const SESSION_TTL_MS = 24 * 60 * 60 * 1000
 
-type NeonSessionUser = {
-  id: string
-  email: string
-  emailVerified?: boolean
-  name?: string | null
-  image?: string | null
+type TokenBase = {
+  roomId: string
+  expiresAt: number
+}
+
+export type InviteToken = TokenBase & {
+  kind: 'invite'
+}
+
+export type AccessToken = TokenBase & {
+  kind: 'access'
+  userId: string
+  displayName: string
+  canManageRoom: boolean
 }
 
 export type AppIdentity = {
-  user: typeof appUsers.$inferSelect
-  source: 'web' | 'desktop'
-  desktopSessionId?: string
+  user: {
+    id: string
+    displayName: string
+    displayTag: string
+    avatarUrl: null
+  }
+  source: 'token'
+  token: AccessToken
 }
 
 export type RoomAccess = AppIdentity & {
@@ -32,149 +35,168 @@ export type RoomAccess = AppIdentity & {
 }
 
 export class AccessError extends Error {
+  public readonly status: 400 | 401 | 403 | 404
+
   constructor(
-    public readonly status: 401 | 403 | 404,
+    status: 400 | 401 | 403 | 404,
     message: string,
   ) {
     super(message)
+    this.status = status
   }
 }
 
-export const hashSecret = (value: string) =>
-  createHash('sha256').update(value).digest('hex')
-
-function normalizeName(value: string) {
+function secret() {
+  const value = process.env.SESSION_SECRET
+  if (!value || value.length < 32) {
+    throw new Error('SESSION_SECRET precisa ter pelo menos 32 caracteres')
+  }
   return value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toLocaleLowerCase('pt-BR')
-    .slice(0, 24) || 'usuario'
 }
 
-function publicName(value: string | null | undefined) {
-  const first = value?.trim().split(/\s+/)[0]?.replace(/[^\p{L}\p{N}_-]/gu, '')
-  return first?.slice(0, 24) || 'Usuário'
+function signature(payload: string) {
+  return createHmac('sha256', secret()).update(payload).digest('base64url')
 }
 
-async function ensureAppUser(authUser: NeonSessionUser) {
-  const existing = (await db.select().from(appUsers).where(eq(appUsers.id, authUser.id)).limit(1))[0]
-  if (existing) {
-    const avatarUrl = existing.avatarUrl || authUser.image || null
-    const email = authUser.email.toLocaleLowerCase('pt-BR')
-    if (existing.email !== email || existing.avatarUrl !== avatarUrl) {
-      return (await db.update(appUsers).set({ email, avatarUrl, updatedAt: new Date() }).where(eq(appUsers.id, authUser.id)).returning())[0]
-    }
-    return existing
+function encode(payload: InviteToken | AccessToken) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  return `${encoded}.${signature(encoded)}`
+}
+
+function decode(token: string): InviteToken | AccessToken {
+  const [encoded, received, extra] = token.split('.')
+  if (!encoded || !received || extra) throw new AccessError(401, 'Token inválido')
+
+  const expected = signature(encoded)
+  const receivedBytes = Buffer.from(received)
+  const expectedBytes = Buffer.from(expected)
+  if (receivedBytes.length !== expectedBytes.length || !timingSafeEqual(receivedBytes, expectedBytes)) {
+    throw new AccessError(401, 'Token inválido')
   }
 
-  const displayName = publicName(authUser.name)
-  const normalizedName = normalizeName(displayName)
-  return db.transaction(async (tx) => {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      const tagNumber = randomInt(0, 10000)
-      const displayTag = `${displayName}#${String(tagNumber).padStart(4, '0')}`
-      const inserted = await tx
-        .insert(appUsers)
-        .values({
-          id: authUser.id,
-          email: authUser.email.toLocaleLowerCase('pt-BR'),
-          displayName,
-          normalizedName,
-          tagNumber,
-          displayTag,
-          avatarUrl: authUser.image || null,
-        })
-        .onConflictDoNothing()
-        .returning()
-      if (inserted[0]) return inserted[0]
-
-      const raced = (await tx.select().from(appUsers).where(eq(appUsers.id, authUser.id)).limit(1))[0]
-      if (raced) return raced
-    }
-    throw new Error('Não foi possível gerar uma tag disponível')
-  })
-}
-
-async function ensureInitialOwner(user: typeof appUsers.$inferSelect) {
-  const ownerEmail = process.env.INITIAL_ROOM_OWNER_EMAIL?.trim().toLocaleLowerCase('pt-BR')
-  if (!ownerEmail || user.email !== ownerEmail) return
-
-  await db.transaction(async (tx) => {
-    await tx.insert(roomChannels).values({ roomId: MAIN_ROOM_ID, slug: 'main', ownerUserId: user.id }).onConflictDoNothing()
-    await tx
-      .update(roomChannels)
-      .set({ ownerUserId: user.id, updatedAt: new Date() })
-      .where(and(eq(roomChannels.roomId, MAIN_ROOM_ID), isNull(roomChannels.ownerUserId)))
-    const channel = (await tx.select({ ownerUserId: roomChannels.ownerUserId }).from(roomChannels).where(eq(roomChannels.roomId, MAIN_ROOM_ID)).limit(1))[0]
-    if (channel?.ownerUserId !== user.id) return
-    await tx
-      .insert(roomMemberships)
-      .values({ userId: user.id, roomId: MAIN_ROOM_ID, role: 'owner' })
-      .onConflictDoUpdate({
-        target: [roomMemberships.userId, roomMemberships.roomId],
-        set: { role: 'owner' },
-      })
-  })
-}
-
-async function resolveDesktopIdentity(token: string): Promise<AppIdentity | null> {
-  const now = new Date()
-  const row = (await db
-    .select({ session: desktopSessions, user: appUsers })
-    .from(desktopSessions)
-    .innerJoin(appUsers, eq(appUsers.id, desktopSessions.userId))
-    .where(and(eq(desktopSessions.tokenHash, hashSecret(token)), isNull(desktopSessions.revokedAt), gt(desktopSessions.expiresAt, now)))
-    .limit(1))[0]
-  if (!row) return null
-
-  if (now.getTime() - row.session.lastSeenAt.getTime() > 60 * 60 * 1000) {
-    await db.update(desktopSessions).set({ lastSeenAt: now, expiresAt: new Date(now.getTime() + DEVICE_SESSION_TTL_MS) }).where(eq(desktopSessions.id, row.session.id))
+  let payload: unknown
+  try {
+    payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))
+  } catch {
+    throw new AccessError(401, 'Token inválido')
   }
-  await ensureInitialOwner(row.user)
-  return { user: row.user, source: 'desktop', desktopSessionId: row.session.id }
+
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !('kind' in payload) ||
+    !('roomId' in payload) ||
+    !('expiresAt' in payload) ||
+    typeof payload.roomId !== 'string' ||
+    typeof payload.expiresAt !== 'number'
+  ) {
+    throw new AccessError(401, 'Token inválido')
+  }
+  if (payload.expiresAt <= Date.now()) throw new AccessError(401, 'Esta sessão expirou')
+  if (payload.kind !== 'invite' && payload.kind !== 'access') throw new AccessError(401, 'Token inválido')
+  return payload as InviteToken | AccessToken
 }
 
-async function resolveWebIdentity(): Promise<AppIdentity | null> {
-  if (!authIsConfigured()) return null
-  const result = await neonAuth.getSession()
-  const session = result.data as { user?: NeonSessionUser } | null
-  if (!session?.user?.id || !session.user.email || session.user.emailVerified === false) return null
-  const user = await ensureAppUser(session.user)
-  await ensureInitialOwner(user)
-  return { user, source: 'web' }
+export function normalizeDisplayName(value: unknown) {
+  if (typeof value !== 'string') return ''
+  return value.trim().replace(/\s+/g, ' ').slice(0, 24)
+}
+
+export function createRoomId() {
+  return randomBytes(12).toString('base64url')
+}
+
+export function createInviteToken(roomId: string, expiresAt: number) {
+  return encode({ kind: 'invite', roomId, expiresAt })
+}
+
+export function readInviteToken(token: string) {
+  const payload = decode(token)
+  if (payload.kind !== 'invite') throw new AccessError(401, 'Convite inválido')
+  return payload
+}
+
+export function createAccessToken(input: {
+  roomId: string
+  expiresAt: number
+  displayName: string
+  canManageRoom: boolean
+}) {
+  const displayName = normalizeDisplayName(input.displayName)
+  if (displayName.length < 2) throw new AccessError(400, 'Informe um nome com pelo menos 2 caracteres')
+  const payload: AccessToken = {
+    kind: 'access',
+    roomId: input.roomId,
+    expiresAt: input.expiresAt,
+    userId: randomBytes(16).toString('base64url'),
+    displayName,
+    canManageRoom: input.canManageRoom,
+  }
+  return { token: encode(payload), payload }
+}
+
+export function readAccessToken(token: string) {
+  const payload = decode(token)
+  if (payload.kind !== 'access') throw new AccessError(401, 'Sessão inválida')
+  if (
+    typeof payload.userId !== 'string' ||
+    typeof payload.displayName !== 'string' ||
+    typeof payload.canManageRoom !== 'boolean'
+  ) {
+    throw new AccessError(401, 'Sessão inválida')
+  }
+  return payload
+}
+
+function identityFromToken(payload: AccessToken): AppIdentity {
+  return {
+    user: {
+      id: payload.userId,
+      displayName: payload.displayName,
+      displayTag: payload.displayName,
+      avatarUrl: null,
+    },
+    source: 'token',
+    token: payload,
+  }
 }
 
 export async function resolveIdentity(request?: Request): Promise<AppIdentity | null> {
   const authorization = request?.headers.get('authorization')
-  if (authorization?.startsWith('Bearer ')) {
-    const token = authorization.slice(7).trim()
-    return token ? resolveDesktopIdentity(token) : null
+  if (!authorization?.startsWith('Bearer ')) return null
+  try {
+    return identityFromToken(readAccessToken(authorization.slice(7).trim()))
+  } catch (error) {
+    if (error instanceof AccessError) return null
+    throw error
   }
-  return resolveWebIdentity()
 }
 
 export async function requireIdentity(request?: Request) {
-  const identity = await resolveIdentity(request)
-  if (!identity) throw new AccessError(401, 'Faça login para continuar')
-  return identity
+  const authorization = request?.headers.get('authorization')
+  if (!authorization?.startsWith('Bearer ')) throw new AccessError(401, 'Sessão obrigatória')
+  return identityFromToken(readAccessToken(authorization.slice(7).trim()))
 }
 
-export async function requireRoomAccess(request: Request | undefined, roomId = MAIN_ROOM_ID, ownerOnly = false): Promise<RoomAccess> {
+export async function requireRoomAccess(
+  request: Request | undefined,
+  roomId?: string,
+  ownerOnly = false,
+): Promise<RoomAccess> {
   const identity = await requireIdentity(request)
-  const membership = (await db
-    .select({ role: roomMemberships.role })
-    .from(roomMemberships)
-    .where(and(eq(roomMemberships.userId, identity.user.id), eq(roomMemberships.roomId, roomId)))
-    .limit(1))[0]
-  if (!membership) throw new AccessError(403, 'Você não tem acesso a esta sala')
-  if (ownerOnly && membership.role !== 'owner') throw new AccessError(403, 'Somente o proprietário pode realizar esta ação')
-  return { ...identity, roomId, role: membership.role === 'owner' ? 'owner' : 'member' }
+  const requestedRoomId = roomId || identity.token.roomId
+  if (requestedRoomId !== identity.token.roomId) throw new AccessError(403, 'Você não tem acesso a esta sala')
+  if (ownerOnly && !identity.token.canManageRoom) {
+    throw new AccessError(403, 'Somente quem criou a sessão pode realizar esta ação')
+  }
+  return {
+    ...identity,
+    roomId: requestedRoomId,
+    role: identity.token.canManageRoom ? 'owner' : 'member',
+  }
 }
 
 export function accessErrorResponse(error: unknown) {
   if (error instanceof AccessError) return { status: error.status, message: error.message }
   return null
 }
-
-export const desktopSessionExpiry = () => new Date(Date.now() + DEVICE_SESSION_TTL_MS)

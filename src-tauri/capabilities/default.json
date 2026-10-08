@@ -6,14 +6,6 @@
   "permissions": [
     "core:default",
     "core:event:default",
-    "core:window:allow-set-fullscreen",
-    "deep-link:default",
-    {
-      "identifier": "opener:allow-open-url",
-      "allow": [
-        { "url": "https://screen-gole.vercel.app/*" },
-        { "url": "http://localhost:3000/*" }
-      ]
-    }
+    "core:window:allow-set-fullscreen"
   ]
 }

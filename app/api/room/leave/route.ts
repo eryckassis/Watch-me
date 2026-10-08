@@ -1,16 +1,16 @@
-import { and, eq } from 'drizzle-orm'
-import { db } from '@/lib/db'
-import { roomPeers } from '@/lib/db/schema'
 import { accessErrorResponse, requireRoomAccess } from '@/lib/auth/identity'
 import { roomJson, roomOptions } from '@/lib/api/room-cors'
+import { ensureRoom } from '@/lib/room/store'
 
 export async function POST(request: Request) {
   try {
-    const access = await requireRoomAccess(request, 'main')
+    const access = await requireRoomAccess(request)
+    const room = ensureRoom(access.roomId, access.token.expiresAt)
     const { peerId } = await request.json().catch(() => ({}))
     if (typeof peerId !== 'string') return roomJson(request, { error: 'peerId obrigatório' }, { status: 400 })
-    const peer = await db.update(roomPeers).set({ status: 'offline', lastSeenAt: new Date() }).where(and(eq(roomPeers.peerId, peerId), eq(roomPeers.userId, access.user.id), eq(roomPeers.roomId, 'main'))).returning({ peerId: roomPeers.peerId })
-    if (!peer[0]) return roomJson(request, { error: 'Peer não pertence à sua sessão' }, { status: 403 })
+    const peer = room.peers.get(peerId)
+    if (!peer || peer.userId !== access.user.id) return roomJson(request, { error: 'Peer não pertence à sua sessão' }, { status: 403 })
+    room.peers.delete(peerId)
     return roomJson(request, { ok: true })
   } catch (error) {
     const access = accessErrorResponse(error)

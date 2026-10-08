@@ -26,9 +26,12 @@ import {
   ViewerJoinDialog,
   WorkspaceHeader,
 } from "./room/room-ui";
-import { FriendsDialog } from "./friends/friends-dialog";
+import {
+  attachSilentLocalPreview,
+  syncBroadcastTracks,
+} from "@/lib/media/broadcast-routing";
 
-const roomId = "main";
+const defaultRoomId = "temporary";
 const peerId =
   typeof window === "undefined"
     ? ""
@@ -74,11 +77,11 @@ type RoomInvite = {
   createdAt: string;
 };
 const defaultChannel: ChannelProfile = {
-  roomId,
-  slug: "main",
-  name: "Mesa Principal",
+  roomId: defaultRoomId,
+  slug: defaultRoomId,
+  name: "Mesa temporária",
   category: "Transmissões",
-  description: "Canal principal da comunidade",
+  description: "Sessão disponível por 24 horas",
   avatar: null,
 };
 const sourceTabButtonClass =
@@ -92,7 +95,6 @@ type SessionPayload = {
   peers: { peerId: string; role: string; displayName: string }[];
 };
 type SignalsPayload = { signals: SignalRow[] };
-type FriendsSummaryPayload = { incoming: unknown[] };
 
 async function readJson<T = unknown>(response: Response): Promise<T> {
   const text = await response.text();
@@ -127,6 +129,9 @@ async function api<T = unknown>(
       typeof payload.error === "string"
         ? payload.error
         : `Falha ${response.status} em ${path}`;
+    if (response.status === 401 && accessToken && typeof window !== "undefined") {
+      window.location.reload();
+    }
     throw new Error(message);
   }
   return payload;
@@ -168,6 +173,7 @@ export type NativeCaptureBridge = {
   platformLabel: string;
   listSources: () => Promise<NativeCaptureSource[]>;
   startProcessAudio: (processId: number) => Promise<NativeAudioSession>;
+  startSystemAudio: () => Promise<NativeAudioSession>;
 };
 
 export type RoomAppProps = {
@@ -177,8 +183,10 @@ export type RoomAppProps = {
   nativeCapture?: NativeCaptureBridge;
   setNativeFullscreen?: (fullscreen: boolean) => Promise<void>;
   accessToken?: string;
+  roomId?: string;
   initialProfile?: { name: string; avatar: string };
   initialTag?: string;
+  canManageRoom?: boolean;
 };
 
 export function RoomApp({
@@ -188,8 +196,10 @@ export function RoomApp({
   nativeCapture,
   setNativeFullscreen,
   accessToken,
+  roomId = defaultRoomId,
   initialProfile,
   initialTag = "",
+  canManageRoom = false,
 }: RoomAppProps) {
   const normalizedApiBaseUrl = useMemo(
     () => apiBaseUrl.replace(/\/$/, ""),
@@ -215,8 +225,6 @@ export function RoomApp({
   );
   const [draft, setDraft] = useState<Profile>(profile);
   const [profileSettingsOpen, setProfileSettingsOpen] = useState(false);
-  const [friendsOpen, setFriendsOpen] = useState(false);
-  const [incomingFriendRequests, setIncomingFriendRequests] = useState(0);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [displayTag, setDisplayTag] = useState(initialTag);
@@ -284,44 +292,6 @@ export function RoomApp({
   }, [setNativeFullscreen]);
 
   useEffect(() => {
-    const openFriendsSearch = (event: KeyboardEvent) => {
-      if (
-        !(event.ctrlKey || event.metaKey) ||
-        event.key.toLocaleLowerCase() !== "k"
-      )
-        return;
-      event.preventDefault();
-      setFriendsOpen(true);
-    };
-    window.addEventListener("keydown", openFriendsSearch);
-    return () => window.removeEventListener("keydown", openFriendsSearch);
-  }, []);
-
-  useEffect(() => {
-    if (friendsOpen) return;
-
-    let active = true;
-    const refreshFriendRequests = async () => {
-      try {
-        const result = await roomApi<FriendsSummaryPayload>("/api/friends");
-        if (active) setIncomingFriendRequests(result.incoming.length);
-      } catch {
-        // A sala continua utilizável caso a rede de amigos esteja indisponível.
-      }
-    };
-
-    void refreshFriendRequests();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshFriendRequests();
-    }, 5000);
-
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [friendsOpen, roomApi]);
-
-  useEffect(() => {
     if (!mediaFullscreen || !setNativeFullscreen) return;
     const exitWithEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -371,20 +341,7 @@ export function RoomApp({
       stream: MediaStream,
       negotiate = true,
     ) => {
-      const currentTracks = new Set(stream.getTracks());
-      for (const sender of pc.getSenders()) {
-        if (sender.track && !currentTracks.has(sender.track))
-          await sender.replaceTrack(null);
-      }
-      const senders = new Set(
-        pc
-          .getSenders()
-          .map((sender) => sender.track)
-          .filter(Boolean),
-      );
-      for (const track of stream.getTracks()) {
-        if (!senders.has(track)) pc.addTrack(track, stream);
-      }
+      await syncBroadcastTracks(pc, stream);
       if (negotiate) {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
@@ -597,7 +554,7 @@ export function RoomApp({
 
   useEffect(() => {
     const query = memberTag.trim();
-    if (viewer || !channelSettingsOpen || query.length < 2) {
+    if (!canManageRoom || !channelSettingsOpen || query.length < 2) {
       setUserSuggestions([]);
       setUserSearchLoading(false);
       return;
@@ -629,7 +586,7 @@ export function RoomApp({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [channelSettingsOpen, memberTag, roomApi, viewer]);
+  }, [canManageRoom, channelSettingsOpen, memberTag, roomApi]);
 
   useEffect(() => {
     if (sourcePickerOpen) void loadNativeSources();
@@ -698,11 +655,8 @@ export function RoomApp({
       const selectedSource = nativeSources.find(
         (source) => source.id === selectedSourceId,
       );
-      const useNativeProcessAudio = Boolean(
-        captureAudio &&
-        nativeCapture &&
-        kind === "window" &&
-        selectedSource?.processId,
+      const useNativeAudio = Boolean(
+        captureAudio && nativeCapture && kind !== "tab",
       );
       if (nativeCapture && kind === "window" && !selectedSource?.processId) {
         throw new Error(
@@ -725,7 +679,7 @@ export function RoomApp({
           },
         } as MediaTrackConstraints,
         audio: captureAudio
-          ? useNativeProcessAudio
+          ? useNativeAudio
             ? false
             : ({
                 channelCount: 2,
@@ -740,19 +694,26 @@ export function RoomApp({
       videoTrack.contentHint = "detail";
 
       let stream = displayStream;
-      if (useNativeProcessAudio && selectedSource?.processId && nativeCapture) {
+      if (useNativeAudio && nativeCapture) {
         setStatus(
-          `Detectando áudio de ${selectedSource.processName || selectedSource.name}`,
+          kind === "window"
+            ? `Detectando áudio de ${selectedSource?.processName || selectedSource?.name}`
+            : "Capturando o áudio do desktop",
         );
-        nativeAudio = await nativeCapture.startProcessAudio(
-          selectedSource.processId,
-        );
+        nativeAudio = kind === "window" && selectedSource?.processId
+          ? await nativeCapture.startProcessAudio(selectedSource.processId)
+          : await nativeCapture.startSystemAudio();
         const nativeTrack = nativeAudio.stream.getAudioTracks()[0];
         if (!nativeTrack)
           throw new Error(
             "O Windows não entregou uma faixa de áudio para esta janela",
           );
+        nativeTrack.contentHint = "music";
         stream = new MediaStream([videoTrack, nativeTrack]);
+      }
+
+      for (const audioTrack of stream.getAudioTracks()) {
+        audioTrack.contentHint = "music";
       }
 
       if (!stream.getAudioTracks().length) {
@@ -766,9 +727,7 @@ export function RoomApp({
       nativeAudioRef.current = nativeAudio;
       streamRef.current = stream;
       if (localVideo.current) {
-        localVideo.current.srcObject = new MediaStream(stream.getVideoTracks());
-        localVideo.current.muted = true;
-        localVideo.current.volume = 0;
+        attachSilentLocalPreview(localVideo.current, stream);
       }
 
       const track = videoTrack;
@@ -776,10 +735,17 @@ export function RoomApp({
       setQuality(
         `${settings.width || 0}×${settings.height || 0} · ${settings.frameRate ? Math.round(settings.frameRate) : "?"} FPS efetivo`,
       );
+      await roomApi("/api/room/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ peerId, role: "host", live: true }),
+      });
       setSharing(true);
       setStatus(
-        useNativeProcessAudio
-          ? "Ao vivo · áudio isolado do aplicativo"
+        useNativeAudio
+          ? kind === "window"
+            ? "Ao vivo · áudio isolado do aplicativo"
+            : "Ao vivo · áudio do desktop"
           : "Ao vivo · áudio ativo",
       );
       for (const [targetId, pc] of connections.current)
@@ -791,6 +757,9 @@ export function RoomApp({
     } catch (error) {
       displayStream?.getTracks().forEach((track) => track.stop());
       if (nativeAudio) await nativeAudio.stop();
+      streamRef.current = null;
+      nativeAudioRef.current = null;
+      if (localVideo.current) localVideo.current.srcObject = null;
       setSourcePickerOpen(true);
       setStatus(
         error instanceof Error
@@ -904,7 +873,7 @@ export function RoomApp({
   async function copyInvite() {
     try {
       let url = inviteUrl || `${window.location.origin}/s/${channel.slug}`;
-      if (!viewer) {
+      if (canManageRoom) {
         const payload = await roomApi<{ invite: { url: string } }>(
           `/api/rooms/${roomId}/invites`,
           { method: "POST" },
@@ -1107,29 +1076,11 @@ export function RoomApp({
     setProfileSaving(true);
     setProfileError("");
     try {
-      const payload = await roomApi<{
-        user: {
-          displayName: string;
-          displayTag: string;
-          avatarUrl: string | null;
-        };
-      }>("/api/me", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          displayName: draft.name,
-          avatarUrl: draft.avatar,
-        }),
-      });
-      setProfile({
-        name: payload.user.displayName,
-        avatar: payload.user.avatarUrl || profile.avatar,
-      });
-      setDraft({
-        name: payload.user.displayName,
-        avatar: payload.user.avatarUrl || profile.avatar,
-      });
-      setDisplayTag(payload.user.displayTag);
+      const name = draft.name.trim().replace(/\s+/g, " ").slice(0, 24);
+      if (name.length < 2) throw new Error("Informe um nome com pelo menos 2 caracteres");
+      const nextProfile = { name, avatar: draft.avatar };
+      setProfile(nextProfile);
+      setDraft(nextProfile);
       setProfileSettingsOpen(false);
     } catch (error) {
       setProfileError(
@@ -1341,11 +1292,15 @@ export function RoomApp({
                   <strong className="block text-sm font-bold text-white">
                     {sourceKind === "window" && nativeCapture
                       ? "Áudio isolado por aplicativo"
+                      : sourceKind === "screen" && nativeCapture
+                        ? "Áudio completo do desktop"
                       : "Áudio obrigatório"}
                   </strong>
                   <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
                     {sourceKind === "window" && nativeCapture
                       ? "O Windows 11 captura somente o processo escolhido e não recaptura o Screen Gole."
+                      : sourceKind === "screen" && nativeCapture
+                        ? "O áudio de saída do Windows será enviado junto com a tela inteira."
                       : "No seletor do Windows, habilite o compartilhamento de áudio; sem uma faixa audível a transmissão não começa."}
                   </p>
                 </div>
@@ -1370,12 +1325,14 @@ export function RoomApp({
         <CommunityRail
           channel={channel}
           viewer={viewer}
+          canManageRoom={canManageRoom}
           profile={profile}
           onEdit={openChannelSettings}
         />
         <ChannelPanel
           channel={channel}
           viewer={viewer}
+          canManageRoom={canManageRoom}
           sharing={viewer ? roomLive : sharing}
           viewers={viewers}
           copied={copied}
@@ -1387,6 +1344,8 @@ export function RoomApp({
             channel={channel}
             status={status}
             viewer={viewer}
+            canManageRoom={canManageRoom}
+            showLogout={!accessToken}
             copied={copied}
             profile={profile}
             onCopyInvite={() => void copyInvite()}
@@ -1396,8 +1355,6 @@ export function RoomApp({
               setProfileError("");
               setProfileSettingsOpen(true);
             }}
-            onFriends={() => setFriendsOpen(true)}
-            incomingFriendRequests={incomingFriendRequests}
           />
           <div className="workspace-content">
             <section className="workspace-stage-section">
@@ -1480,17 +1437,6 @@ export function RoomApp({
         }
         onCaptureAudioChange={changeCaptureAudio}
       />
-      <FriendsDialog
-        open={friendsOpen}
-        onOpenChange={setFriendsOpen}
-        request={roomApi}
-        onIncomingCountChange={setIncomingFriendRequests}
-        onJoinRoom={(room) => {
-          setFriendsOpen(false);
-          if (room.roomId !== roomId && !accessToken)
-            window.location.assign(`/s/${room.slug}`);
-        }}
-      />
       {profileSettingsOpen && (
         <RoomDialog
           open={profileSettingsOpen}
@@ -1507,7 +1453,7 @@ export function RoomApp({
           >
             <div className="channel-settings-header">
               <div>
-                <p>Conta Google</p>
+                <p>Perfil desta sessão</p>
                 <h2>Editar perfil</h2>
               </div>
               <DialogCloseButton />
@@ -1529,7 +1475,7 @@ export function RoomApp({
                   {displayTag || profile.name}
                 </strong>
                 <small className="text-xs text-white/45">
-                  O número da tag permanece o mesmo.
+                  Nome e imagem deixam de valer quando a sessão expirar.
                 </small>
               </div>
               <label className="cursor-pointer rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white hover:bg-white/10">
@@ -1582,7 +1528,7 @@ export function RoomApp({
           </form>
         </RoomDialog>
       )}
-      {channelSettingsOpen && !viewer && (
+      {channelSettingsOpen && canManageRoom && (
         <RoomDialog
           open={channelSettingsOpen}
           onOpenChange={setChannelSettingsOpen}

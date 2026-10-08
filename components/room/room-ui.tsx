@@ -113,11 +113,13 @@ export function DialogCloseButton({ label = "Fechar" }: { label?: string }) {
 export function CommunityRail({
   channel,
   viewer,
+  canManageRoom,
   profile,
   onEdit,
 }: {
   channel: RoomChannel;
   viewer: boolean;
+  canManageRoom: boolean;
   profile: ProfileDraft;
   onEdit: () => void;
 }) {
@@ -140,7 +142,7 @@ export function CommunityRail({
         )}
       </button>
       <div className="community-rail-spacer" />
-      {!viewer ? (
+      {canManageRoom ? (
         <button
           type="button"
           className="community-button"
@@ -168,6 +170,7 @@ export function CommunityRail({
 export function ChannelPanel({
   channel,
   viewer,
+  canManageRoom,
   sharing,
   viewers,
   copied,
@@ -176,6 +179,7 @@ export function ChannelPanel({
 }: {
   channel: RoomChannel;
   viewer: boolean;
+  canManageRoom: boolean;
   sharing: boolean;
   viewers: RoomViewer[];
   copied: boolean;
@@ -250,7 +254,7 @@ export function ChannelPanel({
             <Copy size={16} />
             <span>{copied ? "Link copiado" : "Copiar convite"}</span>
           </button>
-          {!viewer ? (
+          {canManageRoom ? (
             <button
               type="button"
               className="channel-action-row"
@@ -278,27 +282,25 @@ export function WorkspaceHeader({
   channel,
   status,
   viewer,
+  canManageRoom,
+  showLogout,
   copied,
   profile,
   onCopyInvite,
   onEdit,
   onProfile,
-  onFriends,
-  incomingFriendRequests,
 }: {
   channel: RoomChannel;
   status: string;
   viewer: boolean;
+  canManageRoom: boolean;
+  showLogout: boolean;
   copied: boolean;
   profile: ProfileDraft;
   onCopyInvite: () => void;
   onEdit: () => void;
   onProfile: () => void;
-  onFriends: () => void;
-  incomingFriendRequests: number;
 }) {
-  const hasFriendRequests = incomingFriendRequests > 0;
-
   return (
     <header className="workspace-header">
       <div className="workspace-heading">
@@ -306,31 +308,6 @@ export function WorkspaceHeader({
         <h1>{channel.name}</h1>
       </div>
       <div className="workspace-actions">
-        <button
-          type="button"
-          onClick={onFriends}
-          className={`relative flex size-10 shrink-0 items-center justify-center gap-2 rounded-2xl border text-left text-sm transition md:w-[clamp(190px,20vw,280px)] md:justify-start md:px-3.5 ${
-            hasFriendRequests
-              ? "border-violet-400/50 bg-violet-500/15 text-white hover:bg-violet-500/20"
-              : "border-white/10 bg-[#1b1b1b] text-white/55 hover:border-white/20 hover:bg-[#242424] hover:text-white"
-          }`}
-          aria-label={hasFriendRequests ? `${incomingFriendRequests} pedido(s) de amizade recebido(s)` : "Pesquisar amigos e usuários"}
-          title={hasFriendRequests ? "Abrir pedidos de amizade" : "Pesquisar amigos (Ctrl+K)"}
-        >
-          {hasFriendRequests ? <UserPlus size={17} aria-hidden="true" /> : <Search size={17} aria-hidden="true" />}
-          <span className="hidden min-w-0 flex-1 truncate md:block">
-            {hasFriendRequests
-              ? `${incomingFriendRequests} pedido${incomingFriendRequests === 1 ? "" : "s"} de amizade`
-              : "Pesquisar pessoas"}
-          </span>
-          {hasFriendRequests ? (
-            <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-violet-500 px-1.5 py-0.5 text-[10px] font-black leading-4 text-white md:static">
-              {incomingFriendRequests}
-            </span>
-          ) : (
-            <kbd className="hidden rounded-md bg-black/35 px-1.5 py-1 font-mono text-[9px] text-white/35 lg:block">Ctrl K</kbd>
-          )}
-        </button>
         <div className="connection-pill" role="status" aria-live="polite">
           <Wifi size={16} />
           <span>{status}</span>
@@ -344,7 +321,7 @@ export function WorkspaceHeader({
         >
           <Copy size={18} />
         </button>
-        {!viewer ? (
+        {canManageRoom ? (
           <button
             type="button"
             className="room-icon-button"
@@ -366,6 +343,16 @@ export function WorkspaceHeader({
             src={profile.avatar}
           />
         </button>
+        {showLogout ? (
+          <a
+            href="/logout"
+            className="room-icon-button"
+            aria-label="Sair da conta"
+            title="Sair da conta"
+          >
+            <LogOut size={18} aria-hidden="true" />
+          </a>
+        ) : null}
       </div>
     </header>
   );
