@@ -1,6 +1,6 @@
 {
   "name": "my-project",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,7 +9,7 @@
     "desktop:dev": "vite --config desktop/vite.config.mts",
     "desktop:build": "vite build --config desktop/vite.config.mts",
     "tauri": "tauri",
-    "test:session": "node --experimental-strip-types --test lib/auth/identity.test.ts"
+    "test:session": "node --experimental-strip-types --test lib/auth/identity.test.ts lib/auth/session-reset.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

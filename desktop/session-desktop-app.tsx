@@ -8,7 +8,7 @@ import { RoomApp } from "../components/room-app";
 import { windowsNativeCapture } from "./native-capture";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "https://screen-gole.vercel.app";
+  import.meta.env.VITE_API_BASE_URL || "https://watch-me-zcf3.onrender.com";
 
 type DesktopSession = {
   accessToken: string;

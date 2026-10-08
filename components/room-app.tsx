@@ -30,6 +30,7 @@ import {
   attachSilentLocalPreview,
   syncBroadcastTracks,
 } from "@/lib/media/broadcast-routing";
+import { shouldResetSession } from "@/lib/auth/session-reset";
 
 const defaultRoomId = "temporary";
 const peerId =
@@ -129,7 +130,7 @@ async function api<T = unknown>(
       typeof payload.error === "string"
         ? payload.error
         : `Falha ${response.status} em ${path}`;
-    if (response.status === 401 && accessToken && typeof window !== "undefined") {
+    if (shouldResetSession(response.status, message) && accessToken && typeof window !== "undefined") {
       window.location.reload();
     }
     throw new Error(message);
@@ -745,7 +746,7 @@ export function RoomApp({
         useNativeAudio
           ? kind === "window"
             ? "Ao vivo · áudio isolado do aplicativo"
-            : "Ao vivo · áudio do desktop"
+            : "Ao vivo · áudio do desktop sem vozes da sala"
           : "Ao vivo · áudio ativo",
       );
       for (const [targetId, pc] of connections.current)
@@ -1293,14 +1294,14 @@ export function RoomApp({
                     {sourceKind === "window" && nativeCapture
                       ? "Áudio isolado por aplicativo"
                       : sourceKind === "screen" && nativeCapture
-                        ? "Áudio completo do desktop"
+                        ? "Áudio do desktop sem vozes da sala"
                       : "Áudio obrigatório"}
                   </strong>
                   <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
                     {sourceKind === "window" && nativeCapture
                       ? "O Windows 11 captura somente o processo escolhido e não recaptura o Screen Gole."
                       : sourceKind === "screen" && nativeCapture
-                        ? "O áudio de saída do Windows será enviado junto com a tela inteira."
+                        ? "O Windows envia o som do desktop, mas exclui o Screen Gole e as vozes recebidas."
                       : "No seletor do Windows, habilite o compartilhamento de áudio; sem uma faixa audível a transmissão não começa."}
                   </p>
                 </div>

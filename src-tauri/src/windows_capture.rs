@@ -10,9 +10,7 @@ use std::{
 };
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use tauri::ipc::Response;
-use wasapi::{
-    initialize_mta, AudioClient, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat,
-};
+use wasapi::{initialize_mta, AudioClient, Direction, SampleType, StreamMode, WaveFormat};
 use windows_capture::{monitor::Monitor, window::Window};
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -358,15 +356,8 @@ fn capture_system_audio(
         None,
     );
     let block_align = format.get_blockalign() as usize;
-    let enumerator = DeviceEnumerator::new().map_err(|error| error.to_string())?;
-    let device = enumerator
-        .get_default_device(&Direction::Render)
-        .map_err(|error| error.to_string())?;
-    let mut client = device
-        .get_iaudioclient()
-        .map_err(|error| error.to_string())?;
-    let (_, minimum_period) = client
-        .get_device_period()
+    // Exclude the Screen Gole process tree so remote participant voices are not recaptured.
+    let mut client = AudioClient::new_application_loopback_client(std::process::id(), false)
         .map_err(|error| error.to_string())?;
     client
         .initialize_client(
@@ -374,7 +365,7 @@ fn capture_system_audio(
             &Direction::Capture,
             &StreamMode::EventsShared {
                 autoconvert: true,
-                buffer_duration_hns: minimum_period,
+                buffer_duration_hns: 200_000,
             },
         )
         .map_err(|error| error.to_string())?;

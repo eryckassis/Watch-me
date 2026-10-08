@@ -1,6 +1,6 @@
 [package]
 name = "screen-gole"
-version = "0.2.0"
+version = "0.2.1"
 description = "Screen Gole desktop client"
 authors = ["Screen Gole"]
 edition = "2021"
