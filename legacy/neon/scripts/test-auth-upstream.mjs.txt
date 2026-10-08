@@ -1,0 +1,75 @@
+const baseUrl = process.env.AUTH_TEST_BASE_URL || 'http://localhost:3000'
+const desktopOrigin = 'http://tauri.localhost'
+
+async function testWebAuth() {
+  const response = await fetch(`${baseUrl}/api/auth/sign-in/social`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'google', callbackURL: '/' }),
+    redirect: 'manual',
+  })
+
+  const body = await response.text()
+  let keys = []
+  try {
+    keys = Object.keys(JSON.parse(body))
+  } catch {
+    // A resposta pode ser um redirect sem JSON.
+  }
+
+  const passed = response.status < 500 && !body.includes('auth.invalid.local')
+  console.log(
+    JSON.stringify({
+      check: 'web-auth-upstream',
+      passed,
+      status: response.status,
+      redirected: response.status >= 300 && response.status < 400,
+      responseKeys: keys,
+    }),
+  )
+  return passed
+}
+
+async function testDesktopAuth() {
+  const endpoint = `${baseUrl}/api/auth/desktop/start`
+  const preflight = await fetch(endpoint, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: desktopOrigin,
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'content-type',
+    },
+  })
+  const state = 'screen_gole_auth_route_regression_00000001'
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Origin: desktopOrigin,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ state }),
+  })
+  const body = await response.json().catch(() => ({}))
+  const passed =
+    preflight.status === 204 &&
+    preflight.headers.get('access-control-allow-origin') === desktopOrigin &&
+    response.status === 200 &&
+    response.headers.get('access-control-allow-origin') === desktopOrigin &&
+    typeof body.authUrl === 'string' &&
+    body.authUrl.includes(`/auth/desktop?state=${state}`)
+
+  console.log(
+    JSON.stringify({
+      check: 'desktop-auth-route',
+      passed,
+      preflightStatus: preflight.status,
+      status: response.status,
+      corsOrigin: response.headers.get('access-control-allow-origin'),
+      hasAuthUrl: typeof body.authUrl === 'string',
+    }),
+  )
+  return passed
+}
+
+const results = await Promise.all([testWebAuth(), testDesktopAuth()])
+if (results.some((passed) => !passed)) process.exitCode = 1
