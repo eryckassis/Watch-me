@@ -1,0 +1,9 @@
+# Desktop-only sources and generated native artifacts
+/desktop/
+/src-tauri/
+/legacy/
+/drizzle/
+
+# Local agent metadata is not needed at runtime
+.agents/
+skills-lock.json
