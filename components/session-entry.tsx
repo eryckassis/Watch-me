@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { ProfileEntryScreen, type SessionProfile } from '@/components/auth/profile-entry-screen'
 import { RoomApp, type RoomMode } from '@/components/room-app'
+import { toAppInviteUrl } from '@/lib/invite-url'
 
 type SessionResponse = {
   accessToken: string
@@ -45,7 +46,7 @@ export function SessionEntry({ mode, inviteToken }: { mode: RoomMode; inviteToke
             : '/api/session/start'
           const nextSession = await startSession(path, nextProfile)
           setProfile(nextProfile)
-          setSession(nextSession)
+          setSession({ ...nextSession, inviteUrl: toAppInviteUrl(nextSession.inviteUrl) })
         }}
       />
     )

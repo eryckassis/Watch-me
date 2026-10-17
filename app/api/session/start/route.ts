@@ -6,6 +6,7 @@ import {
   createRoomId,
 } from '@/lib/auth/identity'
 import { roomJson, roomOptions } from '@/lib/api/room-cors'
+import { toAppInviteUrl } from '@/lib/invite-url'
 import { ensureRoom } from '@/lib/room/store'
 
 export async function POST(request: Request) {
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
       accessToken: access.token,
       roomId,
       expiresAt: new Date(expiresAt).toISOString(),
-      inviteUrl: new URL(`/invite/${inviteToken}`, request.url).toString(),
+      inviteUrl: toAppInviteUrl(`/invite/${inviteToken}`),
       user: {
         id: access.payload.userId,
         displayName: access.payload.displayName,

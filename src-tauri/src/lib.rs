@@ -1,6 +1,9 @@
 #[cfg(windows)]
 mod windows_capture;
 
+#[cfg(desktop)]
+use tauri::Manager;
+
 #[cfg(windows)]
 #[tauri::command]
 fn list_capture_sources() -> Result<Vec<windows_capture::CaptureSource>, String> {
@@ -43,6 +46,18 @@ fn stop_process_audio_capture(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder = builder.plugin(tauri_plugin_deep_link::init());
 
     #[cfg(windows)]
     {

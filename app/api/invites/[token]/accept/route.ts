@@ -5,6 +5,7 @@ import {
   readInviteToken,
 } from '@/lib/auth/identity'
 import { roomJson, roomOptions } from '@/lib/api/room-cors'
+import { toAppInviteUrl } from '@/lib/invite-url'
 import { ensureRoom } from '@/lib/room/store'
 
 type Context = { params: Promise<{ token: string }> }
@@ -26,7 +27,7 @@ export async function POST(request: Request, { params }: Context) {
       accessToken: access.token,
       roomId: invite.roomId,
       expiresAt: new Date(invite.expiresAt).toISOString(),
-      inviteUrl: new URL(`/invite/${createInviteToken(invite.roomId, invite.expiresAt)}`, request.url).toString(),
+      inviteUrl: toAppInviteUrl(`/invite/${createInviteToken(invite.roomId, invite.expiresAt)}`),
       user: {
         id: access.payload.userId,
         displayName: access.payload.displayName,

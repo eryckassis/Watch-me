@@ -25,6 +25,13 @@
       "csp": "default-src 'self'; connect-src 'self' https://watch-me-zcf3.onrender.com ws://localhost:1420; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["screen-gole"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
